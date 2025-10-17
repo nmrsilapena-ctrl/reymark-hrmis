@@ -1,89 +1,56 @@
-- name: Checkout repository
-
-  name: Deploy Yii2 to EC2
+name: Deploy Yii2 to EC2
 
 on:
-
-push:
-
-  branches: [ main ]
-
-workflow_dispatch:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-deploy:
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  runs-on: ubuntu-latest
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "Starting Yii2 deployment..."
 
-  steps:
+            cd ${{ secrets.DEPLOY_PATH }}
 
-    - name: Checkout repository
+            # Setup SSH so EC2 can access GitHub
+            mkdir -p ~/.ssh
+            echo "${{ secrets.EC2_DEPLOY_KEY }}" > ~/.ssh/id_rsa
+            chmod 600 ~/.ssh/id_rsa
+            ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-      uses: actions/checkout@v4
+            # Clone or pull the latest code using SSH
+            if [ ! -d ".git" ]; then
+              git clone git@github.com:nmrsilapena-ctrl/reymark-hrmis.git .
+            else
+              git pull origin main
+            fi
 
-    - name: Deploy to EC2
+            # Install composer dependencies
+            composer install --no-dev --optimize-autoloader --no-interaction
 
-      uses: appleboy/ssh-action@v1.1.0
+            # Run Yii2 console commands
+            php yii migrate --interactive=0 || true
+            php yii cache/flush-all || true
 
-      with:
+            # Set correct permissions
+            sudo chown -R ec2-user:nginx ${{ secrets.DEPLOY_PATH }}
+            sudo chmod -R 775 ${{ secrets.DEPLOY_PATH }}/runtime
+            sudo chmod -R 775 ${{ secrets.DEPLOY_PATH }}/web/assets
 
-        host: ${{ secrets.EC2_HOST }}
+            # Restart services
+            sudo systemctl restart php-fpm
+            sudo systemctl reload nginx
 
-        username: ${{ secrets.EC2_USER }}
-
-        key: ${{ secrets.EC2_SSH_KEY }}
-
-script: |
-
-          echo "Starting Yii2 deployment..."
-
-          cd ${{ secrets.DEPLOY_PATH }}
-
-          # Setup SSH so EC2 can access GitHub
-
-          mkdir -p ~/.ssh
-
-          echo "${{ secrets.EC2_DEPLOY_KEY }}" > ~/.ssh/id_rsa
-
-          chmod 600 ~/.ssh/id_rsa
-
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-
-          # Clone or pull using SSH instead of HTTPS
-
-          if [ ! -d ".git" ]; then
-
-            git clone git@github.com:nmrsilapena-ctrl/reymark-hrmis.git .
-
-          else
-
-            git pull origin main
-
-          fi
-
-          # Install composer dependencies
-
-          composer install --no-dev --optimize-autoloader --no-interaction
-
-          # Yii2 commands
-
-          php yii migrate --interactive=0 || true
-
-          php yii cache/flush-all || true
-
-          # Adjust permissions
-
-          sudo chown -R ec2-user:nginx ${{ secrets.DEPLOY_PATH }}
-
-          sudo chmod -R 775 ${{ secrets.DEPLOY_PATH }}/runtime
-
-          sudo chmod -R 775 ${{ secrets.DEPLOY_PATH }}/web/assets
-
-          # Restart services
-
-          sudo systemctl restart php-fpm
-
-          sudo systemctl reload nginx
-
-          echo "Deployment complete ✅"
+            echo "Deployment complete ✅"
