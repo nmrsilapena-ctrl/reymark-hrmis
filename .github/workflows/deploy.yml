@@ -1,6 +1,6 @@
 - name: Checkout repository
 
-    name: Deploy Yii2 to EC2
+  name: Deploy Yii2 to EC2
 
 on:
 
